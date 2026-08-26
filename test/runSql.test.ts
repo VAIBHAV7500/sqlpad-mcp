@@ -20,6 +20,13 @@ function jsonResponse(body: unknown): Response {
   })
 }
 
+function errorResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
 function fetchSequence(...bodies: unknown[]): ReturnType<typeof vi.fn> {
   const mock = vi.fn()
   for (const body of bodies) mock.mockResolvedValueOnce(jsonResponse(body))
@@ -125,6 +132,7 @@ describe('runSql', () => {
     })
     expect(mock).toHaveBeenCalledTimes(4)
     expect(String(mock.mock.calls[3]?.[0])).toContain('/api/statements/statement-1/results')
+    expect(mock.mock.calls.every((call) => !String(call[0]).includes('/schema'))).toBe(true)
   })
 
   it('returns finished results alongside a later statement error', async () => {
@@ -175,6 +183,22 @@ describe('runSql', () => {
     expect(mock).toHaveBeenCalledTimes(1)
   })
 
+  it('diagnoses an immediate batch-level statement error without fetching finished results', async () => {
+    const failed = statement('statement-1', 1, 'error', {
+      error: { title: 'No database selected' },
+    })
+    const mock = fetchSequence(
+      batch('error', [failed]),
+      { schemas: [{ name: 'app', tables: [] }] },
+    )
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements[0]?.error?.hint).toContain('Available schemas: app.')
+    expect(mock).toHaveBeenCalledTimes(2)
+    expect(mock.mock.calls.every((call) => !String(call[0]).includes('/results'))).toBe(true)
+  })
+
   it('returns current state on timeout without throwing or fetching unfinished results', async () => {
     const queued = statement('statement-1', 1, 'queued')
     const mock = fetchSequence(batch('queued', [queued]), batch('started', [
@@ -220,5 +244,191 @@ describe('runSql', () => {
     await runSql(clientWith(mock), options({ pollIntervalMs: 250 }), sleep)
 
     expect(delays).toEqual([250, 500, 1000, 2000, 2000])
+  })
+
+  it('adds a schema-aware hint for a no-default-database statement error', async () => {
+    const failed = statement('statement-1', 1, 'error', {
+      error: { title: 'No database selected', detail: 'ER_NO_DB_ERROR' },
+    })
+    const mock = fetchSequence(
+      batch('finished', [failed]),
+      {
+        schemas: [
+          { name: 'access_control_service', tables: [] },
+          { name: 'analytics', tables: [] },
+        ],
+      },
+    )
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements[0]?.error?.hint).toBe(
+      'This connection has no default database; write table names as schema.table. Available schemas: access_control_service, analytics.',
+    )
+    expect(mock).toHaveBeenCalledTimes(2)
+    expect(String(mock.mock.calls[1]?.[0])).toContain('/api/connections/connection-1/schema')
+  })
+
+  it.each([
+    ["Table 'app.users' doesn't exist", undefined],
+    ['Query failed', 'relation "users" does not exist'],
+    ['Invalid object name users', undefined],
+  ])('adds a schema-qualification hint for unknown table signature %s', async (title, detail) => {
+    const failed = statement('statement-1', 1, 'error', {
+      error: { title, ...(detail === undefined ? {} : { detail }) },
+    })
+    const mock = fetchSequence(
+      batch('finished', [failed]),
+      { schemas: [{ name: 'app', tables: [] }] },
+    )
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements[0]?.error?.hint).toContain(
+      'qualify it as schema.table. Available schemas: app.',
+    )
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not fetch schemas or add a hint for a non-matching syntax error', async () => {
+    const failed = statement('statement-1', 1, 'error', {
+      error: { title: 'Syntax error', detail: 'Unexpected token near FROM' },
+    })
+    const mock = fetchSequence(batch('finished', [failed]))
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements[0]?.error).toEqual({
+      title: 'Syntax error',
+      detail: 'Unexpected token near FROM',
+    })
+    expect(result.statements[0]?.error).not.toHaveProperty('hint')
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves the statement error without a hint when the schema fetch rejects', async () => {
+    const originalError = { title: 'No database selected', detail: 'ER_NO_DB_ERROR' }
+    const failed = statement('statement-1', 1, 'error', { error: originalError })
+    const mock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(batch('finished', [failed])))
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockRejectedValueOnce(new Error('network unavailable'))
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements[0]?.error).toEqual(originalError)
+  })
+
+  it('preserves the statement error without a hint when the schema fetch returns 403', async () => {
+    const originalError = { title: 'No database selected', detail: 'ER_NO_DB_ERROR' }
+    const failed = statement('statement-1', 1, 'error', { error: originalError })
+    const mock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(batch('finished', [failed])))
+      .mockResolvedValueOnce(errorResponse(403, { title: 'Forbidden' }))
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements[0]?.error).toEqual(originalError)
+  })
+
+  it('preserves the statement error without a hint for a malformed schema response', async () => {
+    const originalError = { title: 'No database selected' }
+    const failed = statement('statement-1', 1, 'error', { error: originalError })
+    const mock = fetchSequence(
+      batch('finished', [failed]),
+      { schemas: 'not-an-array' },
+    )
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements[0]?.error).toEqual(originalError)
+  })
+
+  it('stops waiting for a slow schema fetch and preserves the statement error without a hint', async () => {
+    vi.useFakeTimers()
+    try {
+      const originalError = { title: 'No database selected' }
+      const failed = statement('statement-1', 1, 'error', { error: originalError })
+      const mock = vi.fn()
+        .mockResolvedValueOnce(jsonResponse(batch('finished', [failed])))
+        .mockImplementationOnce(() => new Promise<Response>(() => undefined))
+      const resultPromise = runSql(clientWith(mock), options(), noWait)
+
+      await vi.advanceTimersByTimeAsync(5000)
+      const result = await resultPromise
+
+      expect(result.statements[0]?.error).toEqual(originalError)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('handles a schema response with no schema names without rendering undefined', async () => {
+    const failed = statement('statement-1', 1, 'error', {
+      error: { title: 'No database selected' },
+    })
+    const mock = fetchSequence(batch('finished', [failed]), {})
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+    const hint = result.statements[0]?.error?.hint
+
+    expect(hint).toBe('This connection has no default database; write table names as schema.table.')
+    expect(hint).not.toContain('undefined')
+  })
+
+  it('adds a hint only to the failing statement and fetches schemas once in a mixed batch', async () => {
+    const failed = statement('statement-1', 1, 'error', {
+      error: { title: 'No database selected' },
+    })
+    const finished = statement('statement-2', 2, 'finished', {
+      columns: [{ name: 'value', datatype: 'number', min: 1, max: 1, maxValueLength: 1, maxLineLength: 1 }],
+      rowCount: 1,
+    })
+    const mock = fetchSequence(
+      batch('finished', [failed, finished]),
+      { schemas: [{ name: 'app', tables: [] }] },
+      [[1]],
+    )
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements[0]?.error?.hint).toContain('Available schemas: app.')
+    expect(result.statements[1]?.error).toBeUndefined()
+    expect(result.statements[1]?.results?.rows).toEqual([{ value: 1 }])
+    expect(mock.mock.calls.filter((call) => String(call[0]).includes('/schema'))).toHaveLength(1)
+  })
+
+  it('memoizes one schema fetch across multiple failing statements', async () => {
+    const failures = [
+      statement('statement-1', 1, 'error', { error: { title: 'No database selected' } }),
+      statement('statement-2', 2, 'error', { error: { title: "Table 'app.users' doesn't exist" } }),
+    ]
+    const mock = fetchSequence(
+      batch('finished', failures),
+      { schemas: [{ name: 'app', tables: [] }] },
+    )
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+
+    expect(result.statements.every((item) => item.error?.hint?.includes('schema.table'))).toBe(true)
+    expect(mock.mock.calls.filter((call) => String(call[0]).includes('/schema'))).toHaveLength(1)
+  })
+
+  it('caps schema names at 20 and points to get_connection_schema when more exist', async () => {
+    const failed = statement('statement-1', 1, 'error', {
+      error: { title: 'No database selected' },
+    })
+    const schemas = Array.from({ length: 21 }, (_, index) => ({
+      name: `schema_${index + 1}`,
+      tables: [],
+    }))
+    const mock = fetchSequence(batch('finished', [failed]), { schemas })
+
+    const result = await runSql(clientWith(mock), options(), noWait)
+    const hint = result.statements[0]?.error?.hint
+
+    expect(hint).toContain('schema_20')
+    expect(hint).not.toContain('schema_21')
+    expect(hint).toContain('use get_connection_schema')
   })
 })

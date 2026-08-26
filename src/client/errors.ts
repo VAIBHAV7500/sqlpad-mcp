@@ -104,7 +104,13 @@ export class SqlPadError extends Error {
       cause?: unknown;
     } = {},
   ) {
-    super(redact(opts.status ? (STATUS_MESSAGES[opts.status] ?? message) : message, ''));
+    const statusMessage = opts.status === undefined ? undefined : STATUS_MESSAGES[opts.status];
+    const composedMessage = statusMessage === undefined
+      ? message
+      : opts.title !== undefined && opts.title !== statusMessage
+        ? `${statusMessage} ${opts.title}`
+        : statusMessage;
+    super(redact(composedMessage, ''));
     this.name = 'SqlPadError';
     this.status = opts.status;
     this.title = opts.title === undefined ? undefined : redact(opts.title, '');

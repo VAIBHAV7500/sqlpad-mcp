@@ -1,6 +1,8 @@
 import type { SqlPadClient } from '../client/SqlPadClient.js'
 import { formatRows, type FormattedRows } from '../format/rows.js'
-import type { Batch, Statement } from '../types.js'
+import { schemaNames } from '../format/schema.js'
+import type { Batch, ConnectionSchema, Statement } from '../types.js'
+import { diagnoseStatementError } from './diagnostics.js'
 
 export interface RunSqlResult {
   batchId: string
@@ -12,7 +14,7 @@ export interface RunSqlResult {
     statementText: string
     status: string
     durationMs?: number
-    error?: { title?: string; detail?: string }
+    error?: { title?: string; detail?: string; hint?: string }
     results?: FormattedRows
   }[]
 }
@@ -21,6 +23,28 @@ type Sleep = (delayMs: number) => Promise<void>
 
 const TERMINAL_STATEMENT_STATUSES = new Set(['finished', 'error'])
 const TERMINAL_BATCH_STATUSES = new Set(['finished', 'error'])
+// Production schema lookups take ~800ms, so 1s is too tight on this failed-query-only path.
+// Spending a few extra seconds is worth the actionable hint while still bounding an unresponsive endpoint.
+const DIAGNOSTIC_SCHEMA_TIMEOUT_MS = 5000
+
+function withDiagnosticTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error('Schema diagnostic lookup timed out.')),
+      DIAGNOSTIC_SCHEMA_TIMEOUT_MS,
+    )
+    promise.then(
+      (value) => {
+        clearTimeout(timeout)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timeout)
+        reject(error)
+      },
+    )
+  })
+}
 
 function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs))
@@ -33,27 +57,62 @@ function isTerminal(batch: Batch): boolean {
     && statements.every((statement) => TERMINAL_STATEMENT_STATUSES.has(statement.status))
 }
 
-function statementResult(statement: Statement, results?: FormattedRows): RunSqlResult['statements'][number] {
+function statementResult(
+  statement: Statement,
+  results?: FormattedRows,
+  hint?: string,
+): RunSqlResult['statements'][number] {
   return {
     statementId: statement.id,
     sequence: statement.sequence,
     statementText: statement.statementText,
     status: statement.status,
     ...(statement.durationMs === null ? {} : { durationMs: statement.durationMs }),
-    ...(statement.error === null ? {} : { error: statement.error }),
+    ...(statement.error === null
+      ? {}
+      : { error: { ...statement.error, ...(hint === undefined ? {} : { hint }) } }),
     ...(results === undefined ? {} : { results }),
   }
 }
 
 async function collectStatements(
   client: SqlPadClient,
+  connectionId: string,
   statements: Statement[],
   maxRows: number,
+  fetchFinishedResults = true,
 ): Promise<RunSqlResult['statements']> {
   const output: RunSqlResult['statements'] = []
+  let schemaNamesPromise: Promise<string[] | undefined> | undefined
+
+  const getSchemaNames = (): Promise<string[] | undefined> => {
+    schemaNamesPromise ??= withDiagnosticTimeout(
+      client.get<ConnectionSchema>(
+        `/api/connections/${encodeURIComponent(connectionId)}/schema`,
+      ).then(schemaNames),
+    ).catch(() => undefined)
+    return schemaNamesPromise
+  }
 
   for (const statement of statements) {
+    if (statement.status === 'error' && statement.error !== null) {
+      const matches = diagnoseStatementError(statement.error, { schemaNames: [] })
+      if (matches !== undefined) {
+        const availableSchemaNames = await getSchemaNames()
+        const hint = availableSchemaNames === undefined
+          ? undefined
+          : diagnoseStatementError(statement.error, { schemaNames: availableSchemaNames })
+        output.push(statementResult(statement, undefined, hint))
+        continue
+      }
+    }
+
     if (statement.status !== 'finished') {
+      output.push(statementResult(statement))
+      continue
+    }
+
+    if (!fetchFinishedResults) {
       output.push(statementResult(statement))
       continue
     }
@@ -82,7 +141,12 @@ async function toResult(
     batchId: batch.id,
     status: batch.status,
     timedOut,
-    statements: await collectStatements(client, batch.statements ?? [], maxRows),
+    statements: await collectStatements(
+      client,
+      batch.connectionId,
+      batch.statements ?? [],
+      maxRows,
+    ),
   }
 }
 
@@ -112,7 +176,13 @@ export async function runSql(client: SqlPadClient, opts: {
       batchId: batch.id,
       status: batch.status,
       timedOut: false,
-      statements: (batch.statements ?? []).map((statement) => statementResult(statement)),
+      statements: await collectStatements(
+        client,
+        batch.connectionId,
+        batch.statements ?? [],
+        opts.maxRows,
+        false,
+      ),
     }
   }
 

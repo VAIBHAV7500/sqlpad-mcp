@@ -46,6 +46,7 @@ const statementOutput = z.object({
   error: z.object({
     title: z.string().optional(),
     detail: z.string().optional(),
+    hint: z.string().optional(),
   }).optional(),
   results: formattedRowsOutput.optional(),
 })
@@ -83,7 +84,7 @@ export function registerExecutionTools(
 ): string[] {
   server.registerTool('run_sql', {
     title: 'Run SQL',
-    description: 'Execute arbitrary SQL, including DDL and DML, by creating an asynchronous SQLPad batch, polling it to completion, and returning rows inline. This tool is NOT sandboxed and does not enforce read-only access; read-only enforcement belongs on the SQLPad connection\'s database credentials. Returned rows are capped by maxRows and any truncation is reported explicitly. On timeout it returns a batchId and current statuses so execution can be resumed with get_batch instead of re-running the SQL.',
+    description: 'Execute arbitrary SQL, including DDL and DML, by creating an asynchronous SQLPad batch, polling it to completion, and returning rows inline. This tool is NOT sandboxed and does not enforce read-only access; read-only enforcement belongs on the SQLPad connection\'s database credentials. Connections may have no default database; qualify table names as schema.table and use get_connection_schema to discover schemas. Returned rows are capped by maxRows and any truncation is reported explicitly. On timeout it returns a batchId and current statuses so execution can be resumed with get_batch instead of re-running the SQL.',
     inputSchema: {
       connectionId: connectionIdParam,
       sql: sqlParam,

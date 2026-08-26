@@ -90,15 +90,22 @@ describe('SqlPadError', () => {
     [403, 'This operation requires an admin service token.'],
     [404, 'The requested SQLPad resource was not found.'],
     [500, 'SQLPad encountered an internal server error.'],
-  ])('uses the actionable status message for HTTP %i', (status, expectedMessage) => {
-    const error = new SqlPadError(`unsafe fallback ${TOKEN}`, { status });
+  ])('composes the actionable status message and SQLPad title for HTTP %i', (status, statusMessage) => {
+    const title = `Specific SQLPad error ${TOKEN}.`;
+    const error = new SqlPadError(`unsafe fallback ${TOKEN}`, { status, title });
 
     expect(error).toMatchObject({
       name: 'SqlPadError',
       status,
-      message: expectedMessage,
+      message: `${statusMessage} Specific SQLPad error [REDACTED].`,
     });
     expect(error.message).not.toContain(TOKEN);
+  });
+
+  it('keeps the bare status message when SQLPad provides no title', () => {
+    const error = new SqlPadError('SQLPad request failed with status 403.', { status: 403 });
+
+    expect(error.message).toBe('This operation requires an admin service token.');
   });
 
   it('redacts its message, title, detail, stack, and nested Error causes', () => {

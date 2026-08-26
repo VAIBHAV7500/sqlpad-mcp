@@ -36,6 +36,12 @@ function normalize(raw: ConnectionSchema): NormalizedSchema[] {
   return []
 }
 
+export function schemaNames(raw: ConnectionSchema): string[] {
+  return normalize(raw)
+    .map((schema) => schema.name)
+    .filter((name): name is string => typeof name === 'string')
+}
+
 function includesFilter(value: string | null, filter?: string): boolean {
   if (filter === undefined) return true
   return value?.toLocaleLowerCase().includes(filter.toLocaleLowerCase()) ?? false
