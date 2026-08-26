@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify package contents
+        run: |
+          node -e "
+            const { execSync } = require('node:child_process')
+            const out = execSync('npm pack --dry-run --json', { encoding: 'utf8' })
+            const paths = JSON.parse(out)[0].files.map((f) => f.path)
+            const missing = ['dist/index.js', 'README.md', 'LICENSE'].filter((f) => !paths.includes(f))
+            const leaked = paths.filter((f) => /^(src|test|node_modules|[.]claude|[.]ccg)\//.test(f)
+              || ['tsconfig.json', 'vitest.config.ts', 'eslint.config.js'].includes(f))
+            if (missing.length) throw new Error('missing from tarball: ' + missing.join(', '))
+            if (leaked.length) throw new Error('should not be published: ' + leaked.join(', '))
+            console.log(paths.length + ' files, allowlist respected')
+          "

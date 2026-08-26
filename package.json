@@ -1,18 +1,54 @@
 {
   "name": "sqlpad-mcp",
   "version": "0.1.0",
+  "description": "MCP server for SQLPad — discover connections, inspect schemas, run SQL, and manage saved queries from an AI agent.",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "sqlpad",
+    "sql",
+    "database",
+    "claude",
+    "ai-agent",
+    "stdio"
+  ],
+  "license": "MIT",
+  "author": "Vaibhav Solanki",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VAIBHAV7500/sqlpad-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/VAIBHAV7500/sqlpad-mcp/issues"
+  },
+  "homepage": "https://github.com/VAIBHAV7500/sqlpad-mcp#readme",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "sqlpad-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
+    "clean": "rm -rf dist",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run clean && npm run build && npm run lint && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.2",
