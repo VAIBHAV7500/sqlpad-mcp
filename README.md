@@ -1,7 +1,7 @@
 # SQLPad MCP Server
 
 [![npm version](https://img.shields.io/npm/v/sqlpad-mcp.svg)](https://www.npmjs.com/package/sqlpad-mcp)
-[![license: MIT](https://img.shields.io/npm/l/sqlpad-mcp.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![node](https://img.shields.io/node/v/sqlpad-mcp.svg)](https://nodejs.org)
 
 An [MCP](https://modelcontextprotocol.io/) server for [SQLPad](https://github.com/sqlpad/sqlpad). Point an AI agent at a SQLPad instance with its base URL and a service token, and the agent can discover connections, inspect schemas, run SQL, and manage saved queries.
