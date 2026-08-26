@@ -5,9 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-08-26
+
+First release published to npm. 0.1.0 was tagged but never published.
+
+### Added
+
+- `run_sql` now attaches an `error.hint` to a failed statement when the failure is one it can
+  explain: "no database selected", or an unresolved table (`table '…' doesn't exist`,
+  `relation '…' does not exist`, `invalid object name`). The hint suggests qualifying the name as
+  `schema.table` and lists the connection's available schemas.
+- The schema lookup backing that hint only runs on the failure path, is fetched at most once per
+  `run_sql` call, and is bounded by a 5 s timeout. If it times out or fails, the statement error is
+  returned unchanged rather than surfacing a secondary error.
+
+### Changed
+
+- `SqlPadError` messages now compose the generic status message with the API's `title` instead of
+  discarding one of them, so HTTP failures explain what SQLPad actually rejected.
+
+### Packaging
+
+- Release metadata, `files` allowlist, `prepublishOnly` build guard, CI on Node 20 and 22, and a
+  tag-triggered publish workflow using npm provenance.
+
 ## [0.1.0] - 2026-08-26
 
-Initial public release.
+Initial implementation. Tagged locally but never published to npm.
 
 ### Added
 

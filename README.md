@@ -78,7 +78,7 @@ Twelve tools are always registered. Six more are gated behind the two `SQLPAD_AL
 
 | Tool | Description |
 | --- | --- |
-| `run_sql` | Execute arbitrary SQL, including DDL and DML, by creating an asynchronous SQLPad batch, polling it to completion, and returning rows inline. Not sandboxed. Rows are capped by `maxRows` and truncation is reported explicitly. On timeout it returns a `batchId` so execution can be resumed rather than re-run. |
+| `run_sql` | Execute arbitrary SQL, including DDL and DML, by creating an asynchronous SQLPad batch, polling it to completion, and returning rows inline. Not sandboxed. Rows are capped by `maxRows` and truncation is reported explicitly. On timeout it returns a `batchId` so execution can be resumed rather than re-run. A failed statement carries an `error.hint` when the cause is recognizable, such as a table name that needs `schema.` qualification. |
 | `get_batch` | Get a batch and its current statement statuses. Call this after `run_sql` times out, or while a batch is still queued or running. |
 | `get_statement_results` | Page through a large finished statement result instead of re-running the query. Returns a bounded page converted to objects using the statement's column names. |
 | `cancel_batch` | Request cancellation of an asynchronous batch. SQLPad rejects cancellation when the connection does not support asynchronous execution. |
