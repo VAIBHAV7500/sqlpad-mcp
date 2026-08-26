@@ -13,5 +13,5 @@ coverage/
 .vscode/*
 !.vscode/extensions.json
 
-.ccg/
-.claude/
+.ccg
+.claude/*/*
