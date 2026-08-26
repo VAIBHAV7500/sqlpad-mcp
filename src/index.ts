@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createRequire } from 'node:module'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { SqlPadClient } from './client/SqlPadClient.js'
@@ -7,6 +8,10 @@ import { setRedactionSecret, SqlPadError } from './client/errors.js'
 import { loadConfig } from './config.js'
 import * as logger from './logger.js'
 import { registerAllTools } from './tools/register.js'
+
+// Read at runtime so the advertised version cannot drift from the published package.
+// Resolves to the package root from both src/ (tsx) and dist/ (published).
+const { version: SERVER_VERSION } = createRequire(import.meta.url)('../package.json') as { version: string }
 
 const SERVER_INSTRUCTIONS = `SQLPad executes SQL through asynchronous batches. Use run_sql as the primary tool: it creates a batch, polls it, and returns bounded rows for statements that finish. If run_sql times out, keep its batchId and resume with get_batch rather than submitting the SQL again. For large finished results, use get_statement_results with offset and limit to page through the existing statement. SQL execution is not sandboxed; database read-only enforcement must come from the SQLPad connection's database credentials.`
 
@@ -32,7 +37,7 @@ async function main(): Promise<void> {
 
   const server = new McpServer({
     name: 'sqlpad-mcp',
-    version: '0.1.0',
+    version: SERVER_VERSION,
   }, {
     instructions: SERVER_INSTRUCTIONS,
   })

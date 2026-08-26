@@ -19,6 +19,11 @@ First release published to npm. 0.1.0 was tagged but never published.
   `run_sql` call, and is bounded by a 5 s timeout. If it times out or fails, the statement error is
   returned unchanged rather than surfacing a secondary error.
 
+### Fixed
+
+- The version advertised in the MCP `serverInfo` handshake was hardcoded and had drifted from
+  the package version. It is now read from `package.json` at startup.
+
 ### Changed
 
 - `SqlPadError` messages now compose the generic status message with the API's `title` instead of
