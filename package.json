@@ -1,6 +1,6 @@
 {
   "name": "sqlpad-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for SQLPad — discover connections, inspect schemas, run SQL, and manage saved queries from an AI agent.",
   "keywords": [
     "mcp",
