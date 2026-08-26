@@ -1,0 +1,12 @@
+{
+  "id": "add-sql-statement-diagnostics",
+  "title": "Surface schema qualification diagnostics for SQL statement errors",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "Archive task",
+  "createdAt": "2026-08-26T16:02:41Z",
+  "branch": "master"
+}
